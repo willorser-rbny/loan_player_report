@@ -1,0 +1,10 @@
+"0","if (nrow(player_injuries) > 0) cat(""🤕 **Injury Report:** "", 
+    paste(glue(""{player_injuries$player} ({player_injuries$injury}, Sustained {player_injuries$date_from})""), collapse = "", ""), ""\n\n"")
+"
+"1","🤕 **Injury Report:** "
+"1"," "
+"1","William Saliba (Back Injury, Sustained 2026-07-19)"
+"1"," "
+"1","
+
+"

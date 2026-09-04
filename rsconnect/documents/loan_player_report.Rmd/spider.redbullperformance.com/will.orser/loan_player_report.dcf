@@ -1,0 +1,14 @@
+name: loan_player_report
+title: loan_player_report
+username: will.orser
+account: will.orser
+server: spider.redbullperformance.com
+envVars: BQ_SA_JSON
+hostUrl: https://spider.redbullperformance.com/__api__
+appId: 926
+bundleId: 142546
+url: https://spider.redbullperformance.com/content/97bf61b1-8e0b-4206-9587-d70c861da6b2/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
+additionalFiles: Empire_bq_db_connection.yml|loan_player_email.Rmd|helpers.R

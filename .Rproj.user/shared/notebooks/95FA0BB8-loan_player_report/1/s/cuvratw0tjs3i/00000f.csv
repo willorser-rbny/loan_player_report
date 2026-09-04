@@ -1,0 +1,2 @@
+"0","# --- Derived values for inline text ---"
+"0","time_label <- glue(""{format(date_from, '%B %d, %Y')} to {format(date_to, '%B %d, %Y')}"")"

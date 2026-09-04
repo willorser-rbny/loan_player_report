@@ -1,0 +1,202 @@
+---
+title: "Loan Player Report"
+output: blastula::blastula_email
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+resource_files:
+
+---
+
+```{r init, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(DBI)
+library(bigrquery)
+library(gt)
+library(glue)
+library(blastula)
+source("helpers.R")
+
+global_font <- "Futura"
+rb_red <- "#DD0741"
+rb_blue <- "#001F47"
+```
+
+```{r data-pull}
+# --- Date range ---
+date_to   <- Sys.Date()
+date_from <- as.Date(format(Sys.Date(), "%Y-01-01"))
+
+# --- BigQuery connection ---
+bq_con <- get_my_local_db_access_SDP2()
+
+# --- Loan player IDs (RBNY and RB2) ---
+rbny_loan_players <- dbGetQuery(bq_con,
+                                "SELECT
+  COALESCE(t3.player_nickname, t3.player_name) as player,
+  t1.player_id_scoutastic,
+	t2.player_id_statsbomb,
+	t4.team_id_scoutastic,
+	t5.team_id_transfermarkt,
+	t5.team_id_statsbomb,
+	t6.team_name as team,
+	t6.age_category,
+	t7.date_from as loan_team_joined_date
+FROM
+	`40_intermediate_scoutastic.int_players` t1
+	LEFT JOIN `10_meta_sdp_mappings.players_mapping` t2 ON t1.player_id_scoutastic = t2.player_id_scoutastic
+	LEFT JOIN `40_intermediate_statsbomb.int_players` t3 ON t2.player_id_statsbomb = t3.player_id_statsbomb
+	LEFT JOIN `40_intermediate_scoutastic.int_player_teams` t4 ON t1.player_id_scoutastic = t4.player_id_scoutastic
+	LEFT JOIN `10_meta_sdp_mappings.teams_mapping` t5 ON t4.team_id_scoutastic = t5.team_id_scoutastic
+	LEFT JOIN `40_intermediate_scoutastic.int_teams` t6 ON t4.team_id_scoutastic = t6.team_id_scoutastic
+	LEFT JOIN `40_intermediate_scoutastic.int_player_team_history_windows` t7 ON (t1.player_id_scoutastic = t7.player_id_scoutastic AND t4.team_id_scoutastic = t7.team_id_scoutastic)
+WHERE
+	t1.on_loan_from_team_id_transfermarkt IN ('623', '39815')
+	AND t6.is_national_team = FALSE
+--- QUALIFY ROW_NUMBER() OVER (PARTITION BY t1.player_id_scoutastic ORDER BY t7.date_from DESC) = 1
+") 
+
+rbny_loan_players_clean <- rbny_loan_players %>%
+  group_by(player_id_scoutastic) %>%
+  mutate(
+    loan_team_joined_date = if_else(
+      is.na(loan_team_joined_date) & any(!is.na(loan_team_joined_date)),
+      loan_team_joined_date[!is.na(loan_team_joined_date)][1],
+      loan_team_joined_date
+    )
+  ) %>%
+  filter(loan_team_joined_date == max(loan_team_joined_date, na.rm = TRUE) | is.na(loan_team_joined_date),
+         !is.na(age_category)) %>%
+  ungroup()
+
+# --- Pull data: need a separate pull for A. Stokes ----
+player_loan_stats_statsbomb <- get_loan_player_stats(bq_con, rbny_loan_players_clean %>% 
+                                                       filter(player != "Aidan Stokes"), date_from, date_to)
+
+player_loan_stats_scoutastic <- get_loan_player_stats_scoutastic(bq_con, rbny_loan_players_clean %>% 
+                                                                   filter(player == "Aidan Stokes"), date_from, date_to)
+
+# Combine 
+player_loan_stats_combined <- bind_rows(
+    player_loan_stats_statsbomb %>% mutate(across(ends_with("_last_match"), as.character)),
+    player_loan_stats_scoutastic %>% mutate(across(ends_with("_last_match"), as.character))
+  )
+```
+
+```{r week-label}
+# --- Derived values for inline text ---
+time_label <- glue("{format(date_from, '%B %d, %Y')} to {format(date_to, '%B %d, %Y')}")
+```
+
+```{r stats-table}
+clean_table <- player_loan_stats_combined %>% 
+  mutate(squad_made_last_match = case_when(
+    squad_made_last_match == "1" ~ "Yes",
+    squad_made_last_match == "?" ~ "?",
+    TRUE ~ "No"
+  )) %>%
+  arrange(desc(total_minutes)) %>%
+  select(
+    player,
+    team,
+    team_games_played,
+    total_squads_made,
+    total_starts,
+    start_pct,
+    total_minutes,
+    total_goals,
+    total_assists,
+    last_match,
+    squad_made_last_match,
+    minutes_last_match,
+    next_match
+  )
+  
+
+stats_table <- clean_table %>%
+  mutate(across(where(is.numeric), as.character)) %>%
+  gt() %>%
+  tab_header(
+    title    = "RBNY Loan Player Report",
+    subtitle = glue("From {time_label}")
+  ) %>%
+  cols_label(
+    player            = "Player",
+    team              = "Team",
+    team_games_played = "Team Games Played",
+    total_squads_made       = "Squads Made",
+    total_starts            = "Starts",
+    start_pct         = "Start %",
+    total_minutes     = "Min.",
+    total_goals       = "Goals",
+    total_assists     = "Assists",
+    last_match        = "Last Match",
+    squad_made_last_match = "Squad Made Last Match?",
+    minutes_last_match = "Min. Last Match",
+    next_match = "Next Match"
+  ) %>%
+  tab_style(
+    style     = cell_text(weight = "bold"),
+    locations = cells_body(
+      columns = c(total_goals, total_assists),
+      rows    = (total_goals > 0 | total_assists > 0)
+    )
+  ) %>%
+  tab_style(
+    style     = cell_text(font = global_font),
+    locations = cells_title()
+  ) %>%
+  tab_style(
+    style     = cell_text(font = global_font),
+    locations = cells_body()
+  ) %>%
+  cols_align(align = "center") %>% 
+  tab_options(
+    table.width                    = pct(100),
+    heading.background.color       = rb_blue,
+    heading.title.font.size        = px(30),
+    heading.subtitle.font.size      = px(18),
+    column_labels.font.size = px(12),
+    table.font.size = px(12),
+    column_labels.font.weight      = "bold",
+    column_labels.background.color = "#f0f0f0"
+  ) %>%
+  sub_missing(missing_text = "—")
+
+stats_table
+```
+
+```{r notable-performances, results='asis'}
+scorers   <- player_loan_stats_combined %>% filter(goals_last_match > 0)
+assisters <- player_loan_stats_combined %>% filter(assists_last_match > 0)
+starters  <- player_loan_stats_combined %>% filter(start_last_match > 0)
+full_90s  <- player_loan_stats_combined %>% filter(full_90_last_match > 0)
+player_injuries <- get_loan_player_injuries(bq_con, rbny_loan_players_clean)
+
+dbDisconnect(bq_con)
+
+if (nrow(scorers) > 0)   cat("⚽ **Goal Scorers:** ",  paste(scorers$player,   collapse = ", "), "\n\n")
+if (nrow(assisters) > 0) cat("🅰️ **Assists:** ",       paste(assisters$player, collapse = ", "), "\n\n")
+if (nrow(starters) > 0) cat("🟢️ **Starters:** ",       paste(starters$player, collapse = ", "), "\n\n")
+if (nrow(full_90s) > 0)  cat("💪 **Full 90s:** ",      paste(full_90s$player,  collapse = ", "), "\n\n")
+if (nrow(player_injuries) > 0) cat("🤕 **Injury Report:** ", 
+    paste(glue("{player_injuries$player} ({player_injuries$injury}, Sustained {player_injuries$date_from})"), collapse = ", "), "\n\n")
+```
+
+```{r attach-email, include=FALSE, message=TRUE, warning=TRUE, cache = FALSE}
+email_obj <- render_connect_email(
+  input = "loan_player_email.Rmd",
+  envir = knitr::knit_global()
+)
+
+message("DEBUG email_obj class: ", paste(class(email_obj), collapse = ", "))
+message("DEBUG email_obj is null: ", is.null(email_obj))
+
+attach_connect_email(
+  email         = email_obj,
+  subject       = glue("RBNY Loan Player Update — {format(Sys.Date(), '%B %d, %Y')}"),
+  attach_output = TRUE
+)
+
+message("DEBUG attach_connect_email completed")
+```

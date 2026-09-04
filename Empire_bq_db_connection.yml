@@ -1,0 +1,5 @@
+default:
+  dataconnection:
+    project_id: 'apds-rb-ny-prod'
+    dataset: '90_mart_legacy'
+    billing: 'apds-rb-ny-prod'

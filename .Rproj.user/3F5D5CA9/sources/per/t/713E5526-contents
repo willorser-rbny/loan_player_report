@@ -1,0 +1,25 @@
+---
+title: "Loan Player Report Email"
+output: blastula::blastula_email
+---
+```{r email-setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(gt)
+library(glue)
+
+```
+
+```{r email-stats-table}
+stats_table
+```
+
+```{r email-notable, results='asis'}
+if (any(nrow(scorers) > 0, nrow(assisters) > 0, nrow(starters) > 0, nrow(full_90s) > 0)) {
+  cat("### Notable From Last Matchweek:\n\n")
+}
+
+if (nrow(scorers) > 0)   cat("⚽ **Goal Scorers:** ",  paste(scorers$player,   collapse = ", "), "\n\n")
+if (nrow(assisters) > 0) cat("🅰️ **Assists:** ",       paste(assisters$player, collapse = ", "), "\n\n")
+if (nrow(starters) > 0) cat("🟢 **Starters:** ",        paste(starters$player, collapse = ", "), "\n\n")
+if (nrow(full_90s) > 0)  cat("💪 **Full 90s:** ",      paste(full_90s$player,  collapse = ", "), "\n\n")
+```
