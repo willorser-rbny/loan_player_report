@@ -53,7 +53,6 @@ FROM
 WHERE
 	t1.on_loan_from_team_id_transfermarkt IN ('623', '39815')
 	AND t6.is_national_team = FALSE
---- QUALIFY ROW_NUMBER() OVER (PARTITION BY t1.player_id_scoutastic ORDER BY t7.date_from DESC) = 1
 ") 
 
 rbny_loan_players_clean <- rbny_loan_players %>%
